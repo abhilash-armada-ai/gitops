@@ -1,6 +1,6 @@
 ---
 # Keycloak — identity and access management
-# Chart: private GitLab Helm repo  version: staging-2026-03-23
+# Chart: private GitLab Helm repo  version: staging-2026-04-14
 #
 # NOTE: ArgoCD installs the Keycloak chart only.
 # Realm, client, user configuration MUST be done via Ansible after this is Healthy:
@@ -20,7 +20,7 @@ spec:
   source:
     repoURL: https://gitlab.com/api/v4/projects/61409034/packages/helm/devel
     chart: keycloak
-    targetRevision: "2026.3.23"
+    targetRevision: "2026.4.14"
     helm:
       values: |
         keycloak:
