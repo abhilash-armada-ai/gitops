@@ -1,15 +1,17 @@
 ---
 # Root Application — the ONLY resource applied manually, once, to bootstrap.
 #
-# ArgoCD watches the root of the gitops repo and pulls:
-#   - namespaces.yaml           → cluster namespaces
-#   - infrastructure-root.yaml  → AppOfApps for infrastructure (wave-ordered)
-#   - platform-root.yaml        → AppOfApps for platform (wave-ordered)
+# Single-level AppOfApps: ArgoCD watches apps/ and enforces wave ordering
+# across ALL infrastructure and platform apps in one sync:
 #
-# Those AppOfApps in turn pull their child Application CRDs from Git,
-# with sync-wave ordering enforced entirely by ArgoCD.
-#
-# After this single apply, no shell, no kubectl, no manual steps for deployments.
+#   wave 0  → longhorn                                    (storage first)
+#   wave 1  → metallb, cert-manager
+#   wave 2  → prometheus, seaweedfs, ingress, capi-operator
+#   wave 3  → loki, alloy, cortex
+#   wave 10 → kamaji                                      (platform starts only after all infra Healthy)
+#   wave 11 → opa
+#   wave 12 → keycloak
+#   wave 13 → amcop-apps
 #
 # Apply once:
 #   kubectl apply -f root.yaml
@@ -23,7 +25,7 @@ spec:
   source:
     repoURL: https://github.com/abhilash-armada-ai/gitops
     targetRevision: HEAD
-    path: .
+    path: apps
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

@@ -1,0 +1,128 @@
+---
+# All namespaces required by Armada Bridge
+# Applied before any Application sync (wave -10)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: amcop-system
+  labels:
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  labels:
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cortex
+  labels:
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: longhorn-system
+  labels:
+    app.kubernetes.io/managed-by: argocd
+---
+# Pre-create the ServiceAccount + RBAC required by Longhorn's pre-upgrade Helm hook.
+# ArgoCD runs pre-upgrade hooks on every sync (unlike plain helm install which skips them).
+# The hook reads longhorn.io/settings — the SA needs ClusterRole access before the
+# main chart resources (which normally create this RBAC) are applied.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: longhorn-service-account
+  namespace: longhorn-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: longhorn-pre-upgrade
+rules:
+- apiGroups: ["longhorn.io"]
+  resources: ["*"]
+  verbs: ["get", "list", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods", "nodes", "persistentvolumes", "persistentvolumeclaims", "configmaps"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: longhorn-pre-upgrade
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: longhorn-pre-upgrade
+subjects:
+- kind: ServiceAccount
+  name: longhorn-service-account
+  namespace: longhorn-system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: metallb-system
+  labels:
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prometheus
+  labels:
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vault
+  labels:
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kamaji-system
+  labels:
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubekey-infrastructure-system
+  labels:
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kamaji-control-plane-system
+  labels:
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: capi-operator-system
+  labels:
+    app.kubernetes.io/managed-by: argocd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: seaweedfs
+  labels:
+    app.kubernetes.io/managed-by: argocd
