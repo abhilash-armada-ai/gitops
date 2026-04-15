@@ -29,6 +29,15 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: argocd
 ---
+# Pre-create the ServiceAccount required by Longhorn's pre-upgrade Helm hook.
+# ArgoCD runs pre-upgrade hooks on every sync (unlike plain helm install which skips them),
+# so this SA must exist before the Longhorn Application first syncs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: longhorn-service-account
+  namespace: longhorn-system
+---
 apiVersion: v1
 kind: Namespace
 metadata:
