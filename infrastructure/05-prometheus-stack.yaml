@@ -1,0 +1,118 @@
+---
+# kube-prometheus-stack — Prometheus + Grafana + AlertManager
+# Chart: https://prometheus-community.github.io/helm-charts  version: 82.10.4
+# Grafana NodePort: 32183  —  http://10.20.28.60:32183/grafana/prometheus
+# Data sources: Prometheus (default), Cortex, Loki pre-configured
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 82.10.4
+    helm:
+      values: |
+        global:
+          imagePullSecrets:
+            - name: armada-registry
+        grafana:
+          image:
+            registry: "docker.io"
+            repository: amcop/grafana
+          sidecar:
+            image:
+              registry: "docker.io"
+              repository: amcop/k8s-sidecar
+          additionalDataSources:
+            - name: cortex
+              uid: cortex
+              type: prometheus
+              access: proxy
+              url: http://cortex-query-frontend.cortex.svc.cluster.local:8080/prometheus
+              isDefault: false
+              editable: true
+              jsonData:
+                timeInterval: 15s
+                scrapeInterval: 15s
+                queryTimeout: 180s
+                httpHeaderName1: "X-Scope-Org-ID"
+              secureJsonData:
+                httpHeaderValue1: "fake"
+            - name: loki
+              uid: loki
+              type: loki
+              access: proxy
+              url: http://loki.observability.svc.cluster.local:3100
+              isDefault: false
+              editable: true
+              jsonData:
+                maxLines: 1000
+                queryTimeout: 180s
+          service:
+            type: NodePort
+            nodePort: 32183
+          grafana.ini:
+            auth.anonymous:
+              enabled: true
+            auth.proxy:
+              enabled: true
+            security:
+              allow_embedding: true
+            live:
+              allowed_origins: "*"
+            server:
+              domain: localhost
+              http_port: 3000
+              root_url: "%(protocol)s://%(domain)s:%(http_port)s/grafana/prometheus"
+              serve_from_sub_path: true
+        prometheus:
+          prometheusSpec:
+            image:
+              registry: "docker.io"
+              repository: amcop/prometheus
+            remoteWrite:
+              - url: http://cortex-distributor.cortex.svc.cluster.local:8080/api/v1/push
+                headers:
+                  X-Scope-Org-ID: fake
+            additionalScrapeConfigs:
+              - job_name: 'compute_nodes'
+                static_configs:
+                  - targets:
+                    - 127.0.0.1:9100
+        prometheusOperator:
+          image:
+            registry: "docker.io"
+            repository: amcop/prometheus-operator
+          prometheusConfigReloader:
+            image:
+              registry: "docker.io"
+              repository: amcop/prometheus-config-reloader
+        alertmanager:
+          alertmanagerSpec:
+            image:
+              registry: "docker.io"
+              repository: amcop/alertmanager
+        prometheus-node-exporter:
+          image:
+            registry: "docker.io"
+            repository: amcop/node-exporter
+        kube-state-metrics:
+          image:
+            registry: "docker.io"
+            repository: amcop/kube-state-metrics
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prometheus
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

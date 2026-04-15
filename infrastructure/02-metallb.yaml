@@ -1,0 +1,42 @@
+---
+# MetalLB — L2 load balancer
+# Chart: https://metallb.github.io/metallb  version: 0.15.3
+# NOTE: No IP pool configured (cluster_lb_ip is not set).
+#       To add an IP pool, apply an IPAddressPool + L2Advertisement CR after sync.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metallb
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://metallb.github.io/metallb
+    chart: metallb
+    targetRevision: 0.15.3
+    helm:
+      values: |
+        controller:
+          image:
+            repository: "docker.io/amcop/metallb-controller"
+        speaker:
+          image:
+            repository: "docker.io/amcop/metallb-speaker"
+          frr:
+            enabled: false
+            image:
+              repository: "docker.io/amcop/frrouting-frr"
+        imagePullSecrets:
+          - name: armada-registry
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: metallb-system
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

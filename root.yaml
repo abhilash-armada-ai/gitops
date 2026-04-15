@@ -1,0 +1,35 @@
+---
+# Root Application — the ONLY resource applied manually, once, to bootstrap.
+#
+# ArgoCD watches the root of the gitops repo and pulls:
+#   - namespaces.yaml           → cluster namespaces
+#   - infrastructure-root.yaml  → AppOfApps for infrastructure (wave-ordered)
+#   - platform-root.yaml        → AppOfApps for platform (wave-ordered)
+#
+# Those AppOfApps in turn pull their child Application CRDs from Git,
+# with sync-wave ordering enforced entirely by ArgoCD.
+#
+# After this single apply, no shell, no kubectl, no manual steps for deployments.
+#
+# Apply once:
+#   kubectl apply -f root.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/abhilash-armada-ai/gitops
+    targetRevision: HEAD
+    path: .
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false      # Safety: never auto-delete AppOfApps from Git removals
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,236 @@
+---
+# Cortex — metrics storage backend (S3 via SeaweedFS)
+# Chart: https://cortexproject.github.io/cortex-helm-chart  version: 3.2.0
+#
+# PREREQUISITE: SeaweedFS must be running. Extract S3 credentials first:
+#   ACCESS_KEY=$(kubectl get secret -n seaweedfs seaweedfs-s3-secret \
+#     -o jsonpath='{.data.admin_access_key_id}' | base64 -d)
+#   SECRET_KEY=$(kubectl get secret -n seaweedfs seaweedfs-s3-secret \
+#     -o jsonpath='{.data.admin_secret_access_key}' | base64 -d)
+# Replace SEAWEEDFS_ACCESS_KEY and SEAWEEDFS_SECRET_KEY below.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cortex
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  source:
+    repoURL: https://cortexproject.github.io/cortex-helm-chart
+    chart: cortex
+    targetRevision: 3.2.0
+    helm:
+      values: |
+        image:
+          repository: "docker.io/amcop/cortex"
+          pullSecrets:
+            - armada-registry
+        ingester:
+          replicas: 1
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+        distributor:
+          replicas: 1
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+        querier:
+          replicas: 1
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+        query_frontend:
+          replicas: 1
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+        compactor:
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+        store_gateway:
+          securityContext:
+            enabled: true
+            fsGroup: 10001
+          containerSecurityContext:
+            enabled: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+        ruler:
+          sidecar:
+            enabled: true
+            searchNamespace: cortex
+            image:
+              registry: "docker.io"
+              repository: amcop/k8s-sidecar
+          directories:
+            fake:
+              gpu-usage-per-pod.yaml: |
+                groups:
+                  - name: gpu-usage-per-pod
+                    interval: 5s
+                    rules:
+                      - record: gpu_usage_per_pod
+                        expr: |
+                          ( time() - kube_pod_start_time )
+                          + on (namespace,pod) group_left(modelName,gpu,uuid,label_aarna_ml_user_id,label_aarna_ml_tenant_id,label_aarna_ml_gpu_count,phase)
+                            (
+                              0 * (
+                                (
+                                  avg by (namespace,pod,modelName,gpu,uuid) (
+                                    avg_over_time(DCGM_FI_DEV_GPU_UTIL{pod!="",namespace!=""}[1m])
+                                  )
+                                  * on (namespace,pod) group_left(label_aarna_ml_user_id,label_aarna_ml_tenant_id,label_aarna_ml_gpu_count)
+                                    kube_pod_labels
+                                )
+                                + on (namespace,pod) group_left(phase)
+                                  ((kube_pod_status_phase == 1) * 0)
+                              )
+                            )
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            runAsGroup: 10001
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
+        nginx:
+          replicas: 1
+          image:
+            registry: "docker.io"
+            repository: amcop/nginx
+          containerSecurityContext:
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+        alertmanager:
+          enabled: false
+        config:
+          limits:
+            ingestion_rate: 100000
+            ingestion_burst_size: 200000
+          ingester:
+            lifecycler:
+              ring:
+                replication_factor: 1
+          storage:
+            engine: blocks
+          blocks_storage:
+            backend: s3
+            s3:
+              endpoint: seaweedfs-filer.seaweedfs.svc.cluster.local:8333
+              bucket_name: cortex-blocks
+              access_key_id: "SEAWEEDFS_ACCESS_KEY"
+              secret_access_key: "SEAWEEDFS_SECRET_KEY"
+              insecure: true
+            tsdb:
+              block_ranges_period: [5m, 1h, 2h, 6h, 12h, 24h]
+              head_compaction_interval: 1m
+              ship_interval: 1m
+          ruler_storage:
+            backend: s3
+            s3:
+              endpoint: seaweedfs-filer.seaweedfs.svc.cluster.local:8333
+              bucket_name: cortex-blocks
+              access_key_id: "SEAWEEDFS_ACCESS_KEY"
+              secret_access_key: "SEAWEEDFS_SECRET_KEY"
+              insecure: true
+        memcached-frontend:
+          replicaCount: 1
+          image:
+            registry: "docker.io"
+            repository: amcop/memcached
+            pullSecrets: [armada-registry]
+          metrics:
+            image:
+              registry: "docker.io"
+              repository: amcop/memcached-exporter
+          networkPolicy:
+            enabled: false
+        memcached-blocks:
+          replicaCount: 1
+          image:
+            registry: "docker.io"
+            repository: amcop/memcached
+            pullSecrets: [armada-registry]
+          metrics:
+            image:
+              registry: "docker.io"
+              repository: amcop/memcached-exporter
+          networkPolicy:
+            enabled: false
+        memcached-blocks-index:
+          replicaCount: 1
+          image:
+            registry: "docker.io"
+            repository: amcop/memcached
+            pullSecrets: [armada-registry]
+          metrics:
+            image:
+              registry: "docker.io"
+              repository: amcop/memcached-exporter
+          networkPolicy:
+            enabled: false
+        memcached-blocks-metadata:
+          replicaCount: 1
+          image:
+            registry: "docker.io"
+            repository: amcop/memcached
+            pullSecrets: [armada-registry]
+          metrics:
+            image:
+              registry: "docker.io"
+              repository: amcop/memcached-exporter
+          networkPolicy:
+            enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cortex
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

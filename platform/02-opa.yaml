@@ -1,0 +1,50 @@
+---
+# OPA — Open Policy Agent (policy enforcement)
+# Chart: private GitLab Helm repo  version: 1.8.0 (fixed — see charts_config.yaml)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: opa
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://gitlab.com/api/v4/projects/61409034/packages/helm/devel
+    chart: opa
+    targetRevision: "2026.3.23"
+    helm:
+      values: |
+        imagePullSecrets:
+          - name: armada-registry
+        replicaCount: 1
+        opa:
+          image:
+            tag: "1.14.1"
+          apiKeySecret:
+            enabled: true
+            name: policy-manager-api-key
+            key: API_KEYS
+          config: |
+            server:
+              addr: 0.0.0.0:8181
+              diagnostic-addr: 0.0.0.0:8282
+              graceful_shutdown_period: 10s
+              authentication: off
+              authorization: off
+            decision_logs:
+              console: true
+            services:
+              - name: bundles
+                url: "http://policy-manager:8282"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: amcop-system
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

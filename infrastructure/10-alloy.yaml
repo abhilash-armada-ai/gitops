@@ -1,0 +1,186 @@
+---
+# Grafana Alloy — log collector (DaemonSet, collects orchestrator container logs)
+# Chart: https://grafana.github.io/helm-charts  version: 1.6.1
+# Forwards logs from amcop-system/orchestrator to Loki
+# Also receives OpenTelemetry traces on ports 4317 (gRPC) and 4318 (HTTP)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: alloy
+    targetRevision: 1.6.1
+    helm:
+      values: |
+        image:
+          registry: "docker.io"
+          repository: amcop/alloy
+        global:
+          image:
+            pullSecrets:
+              - name: armada-registry
+        controller:
+          type: daemonset
+          volumes:
+            extra:
+              - name: varlogs
+                hostPath:
+                  path: /var/log
+              - name: varlogpods
+                hostPath:
+                  path: /var/log/pods
+        global:
+          podSecurityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          mounts:
+            extra:
+              - name: varlogs
+                mountPath: /var/log
+                readOnly: true
+              - name: varlogpods
+                mountPath: /var/log/pods
+                readOnly: true
+        alloy:
+          configMap:
+            content: |
+              discovery.kubernetes "amcop_pods" {
+                role = "pod"
+                namespaces {
+                  names = ["amcop-system"]
+                }
+              }
+              discovery.relabel "orchestrator_only" {
+                targets = discovery.kubernetes.amcop_pods.targets
+                rule {
+                  source_labels = ["__meta_kubernetes_namespace"]
+                  action = "keep"
+                  regex = "amcop-system"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_container_name"]
+                  action = "keep"
+                  regex = "orchestrator"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_namespace"]
+                  target_label = "namespace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_container_name"]
+                  target_label = "container"
+                }
+              }
+              loki.source.kubernetes "orchestrator_logs" {
+                targets    = discovery.relabel.orchestrator_only.output
+                forward_to = [loki.process.orchestrator_processing.receiver]
+              }
+              loki.process "orchestrator_processing" {
+                stage.labels {
+                  values = {
+                    namespace    = "amcop-system",
+                    service_name = "orchestrator",
+                  }
+                }
+                forward_to = [loki.write.loki_endpoint.receiver]
+              }
+              otelcol.receiver.otlp "default" {
+                http { endpoint = "0.0.0.0:4318" }
+                grpc { endpoint = "0.0.0.0:4317" }
+                output {
+                  logs = [otelcol.processor.transform.promote_labels.input]
+                }
+              }
+              otelcol.processor.transform "promote_labels" {
+                error_mode = "ignore"
+                log_statements {
+                  context = "log"
+                  statements = [
+                    "set(resource.attributes[\"event_name\"], attributes[\"event.name\"])",
+                    "set(resource.attributes[\"event_domain\"], attributes[\"event.domain\"])",
+                    "set(resource.attributes[\"user_role\"], attributes[\"user.role\"])",
+                    "set(resource.attributes[\"audit\"], attributes[\"audit\"])",
+                    "set(resource.attributes[\"audit_action\"], attributes[\"audit_action\"])",
+                  ]
+                }
+                output {
+                  logs = [otelcol.exporter.loki.default.input]
+                }
+              }
+              otelcol.exporter.loki "default" {
+                forward_to = [loki.process.label_extractor.receiver]
+              }
+              loki.process "label_extractor" {
+                forward_to = [loki.write.loki_endpoint.receiver]
+                stage.json {
+                  expressions = {
+                    event_name   = "resources.event_name",
+                    event_domain = "resources.event_domain",
+                    user_role    = "resources.user_role",
+                    audit        = "resources.audit",
+                    audit_action = "resources.audit_action",
+                  }
+                }
+                stage.labels {
+                  values = {
+                    event_name   = "",
+                    event_domain = "",
+                    user_role    = "",
+                    audit        = "",
+                    audit_action = "",
+                  }
+                }
+                stage.label_drop {
+                  values = ["pod", "instance"]
+                }
+              }
+              loki.write "loki_endpoint" {
+                endpoint {
+                  url = "http://loki.observability.svc.cluster.local:3100/loki/api/v1/push"
+                }
+              }
+          extraPorts:
+            - name: otlp-grpc
+              port: 4317
+              targetPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              port: 4318
+              targetPort: 4318
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            runAsGroup: 473
+            runAsUser: 473
+        configReloader:
+          image:
+            registry: "docker.io"
+            repository: amcop/prometheus-config-reloader
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            runAsGroup: 65534
+            runAsUser: 65534
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

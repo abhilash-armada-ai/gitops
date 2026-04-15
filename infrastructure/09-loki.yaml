@@ -1,0 +1,163 @@
+---
+# Loki — log aggregation (SingleBinary mode)
+# Chart: https://grafana.github.io/helm-charts  version: 6.53.0
+# Storage backend: SeaweedFS S3 (loki-chunks bucket)
+#
+# PREREQUISITE: SeaweedFS must be Running and S3 credentials extracted.
+# Run after seaweedfs Application is Healthy:
+#   ACCESS_KEY=$(kubectl get secret -n seaweedfs seaweedfs-s3-secret \
+#     -o jsonpath='{.data.admin_access_key_id}' | base64 -d)
+#   SECRET_KEY=$(kubectl get secret -n seaweedfs seaweedfs-s3-secret \
+#     -o jsonpath='{.data.admin_secret_access_key}' | base64 -d)
+# Then replace SEAWEEDFS_ACCESS_KEY and SEAWEEDFS_SECRET_KEY below and re-apply.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: loki
+    targetRevision: 6.53.0
+    helm:
+      values: |
+        imagePullSecrets:
+          - name: armada-registry
+        backend:
+          replicas: 0
+        deploymentMode: SingleBinary
+        gateway:
+          enabled: false
+        loki:
+          image:
+            registry: "docker.io"
+            repository: amcop/loki
+          auth_enabled: false
+          server:
+            http_listen_port: 3100
+            grpc_listen_port: 9095
+          commonConfig:
+            replication_factor: 1
+            ring:
+              kvstore:
+                store: inmemory
+          ingester:
+            lifecycler:
+              ring:
+                kvstore:
+                  store: inmemory
+                replication_factor: 1
+            chunk_idle_period: 5m
+            chunk_retain_period: 30s
+            wal:
+              enabled: true
+              dir: /var/loki/wal
+          limits_config:
+            allow_structured_metadata: false
+            volume_enabled: true
+            retention_period: 30d
+            ingestion_rate_mb: 5
+            ingestion_burst_size_mb: 10
+            per_stream_rate_limit: 3MB
+            per_stream_rate_limit_burst: 6MB
+            max_streams_per_user: 1000
+            max_line_size: 256KB
+            max_query_parallelism: 32
+            max_query_series: 10000
+            max_query_length: 0
+            query_timeout: 600s
+            split_queries_by_interval: 1h
+            reject_old_samples: true
+            reject_old_samples_max_age: 24h
+            creation_grace_period: 1h
+          querier:
+            max_concurrent: 10
+          query_range:
+            align_queries_with_step: true
+            cache_results: true
+            results_cache:
+              cache:
+                embedded_cache:
+                  enabled: true
+                  max_size_mb: 200
+          compactor:
+            working_directory: /var/loki/compactor
+            retention_enabled: true
+            retention_delete_delay: 2h
+            compaction_interval: 10m
+            delete_request_store: s3
+          schemaConfig:
+            configs:
+            - from: "2024-01-01"
+              index:
+                period: 24h
+                prefix: index_
+              object_store: s3
+              schema: v13
+              store: tsdb
+          storage:
+            type: s3
+            bucketNames:
+              chunks: loki-chunks
+              ruler: loki-chunks
+              admin: loki-chunks
+            s3:
+              endpoint: http://seaweedfs-filer.seaweedfs.svc.cluster.local:8333
+              region: us-east-1
+              # Replace with actual credentials from seaweedfs-s3-secret after SeaweedFS is up
+              accessKeyId: "SEAWEEDFS_ACCESS_KEY"
+              secretAccessKey: "SEAWEEDFS_SECRET_KEY"
+              s3ForcePathStyle: true
+              insecure: true
+        monitoring:
+          dashboards:
+            enabled: false
+          rules:
+            enabled: false
+          serviceMonitor:
+            enabled: false
+        read:
+          replicas: 0
+        singleBinary:
+          replicas: 1
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: 2
+              memory: 4Gi
+        chunksCache:
+          allocatedMemory: 3072
+        write:
+          replicas: 0
+        memcached:
+          image:
+            registry: "docker.io"
+            repository: amcop/memcached
+        memcachedExporter:
+          image:
+            registry: "docker.io"
+            repository: amcop/memcached-exporter
+        lokiCanary:
+          image:
+            registry: "docker.io"
+            repository: amcop/loki-canary
+        sidecar:
+          image:
+            registry: "docker.io"
+            repository: amcop/k8s-sidecar
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -1,0 +1,40 @@
+---
+# Kamaji — Kubernetes-as-a-Service control plane manager
+# Chart: private GitLab Helm repo  version: 2025.7.28
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kamaji
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://gitlab.com/api/v4/projects/61409034/packages/helm/devel
+    chart: kamaji
+    targetRevision: "2025.7.28"
+    helm:
+      values: |
+        imagePullSecrets:
+          - name: armada-registry
+        image:
+          repository: amcopnightly/aarna-kamaji
+          tag: "2025-07-20"
+          pullPolicy: IfNotPresent
+        resources:
+          limits:
+            memory: 500Mi
+        kamaji-etcd:
+          imagePullSecrets:
+            - name: armada-registry
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kamaji-system
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

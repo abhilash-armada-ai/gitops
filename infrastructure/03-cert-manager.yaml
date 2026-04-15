@@ -1,0 +1,47 @@
+---
+# cert-manager — certificate controller
+# Chart: https://charts.jetstack.io  version: v1.19.4
+# NOTE: ClusterIssuer (backed by Vault PKI) is NOT created here.
+#       Vault must be initialized and PKI engine set up first (Ansible task).
+#       Apply ClusterIssuer manually after vault init completes.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.19.4
+    helm:
+      values: |
+        global:
+          imagePullSecrets:
+            - name: armada-registry
+        image:
+          repository: "docker.io/amcop/cert-manager-controller"
+        webhook:
+          image:
+            repository: "docker.io/amcop/cert-manager-webhook"
+          extraArgs:
+            - --tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+        cainjector:
+          image:
+            repository: "docker.io/amcop/cert-manager-cainjector"
+        crds:
+          enabled: true
+          keep: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

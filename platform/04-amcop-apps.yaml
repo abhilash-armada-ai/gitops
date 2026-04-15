@@ -1,0 +1,151 @@
+---
+# AMCOP Application Charts — ApplicationSet
+# One ApplicationSet deploys all 22 app charts from the private GitLab Helm repo.
+# Chart version: staging-2026-03-23 (from aarna_ml_cms_image_tag in my_vars.yaml)
+# Source: https://gitlab.com/api/v4/projects/61409034/packages/helm/devel
+#
+# Charts included (non_ha_mode + platform_manager from charts_config.yaml):
+#   gpuaas-db, policy-manager, redis, compute-controller, discovery-service,
+#   gpuaas-network-controller, gpuaas-ui, inventory-manager, k8s-manager,
+#   kubeshell, kvm-controller, messaging-service, orchestrator,
+#   postprovisioning-controller, slurm-controller, storage-controller,
+#   vast, audit-svc, infiniband-controller,
+#   vcs-ui, job-orchestrator, platform-manager
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: amcop-apps
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - chart: gpuaas-db
+          - chart: policy-manager
+          - chart: redis
+          - chart: compute-controller
+          - chart: discovery-service
+          - chart: gpuaas-network-controller
+          - chart: gpuaas-ui
+          - chart: inventory-manager
+          - chart: k8s-manager
+          - chart: kubeshell
+          - chart: kvm-controller
+          - chart: messaging-service
+          - chart: orchestrator
+          - chart: postprovisioning-controller
+          - chart: slurm-controller
+          - chart: storage-controller
+          - chart: vast
+          - chart: audit-svc
+          - chart: infiniband-controller
+          - chart: vcs-ui
+          - chart: job-orchestrator
+          - chart: platform-manager
+  template:
+    metadata:
+      name: '{{chart}}'
+      namespace: argocd
+      annotations:
+        argocd.argoproj.io/sync-wave: "4"
+    spec:
+      project: default
+      source:
+        repoURL: https://gitlab.com/api/v4/projects/61409034/packages/helm/devel
+        chart: '{{chart}}'
+        targetRevision: "2026.3.23"
+        helm:
+          values: |
+            # ── Chart-specific overrides ──────────────────────────────────────
+            imagePullSecrets:
+              - name: armada-registry
+            replicaCount: 1
+            veleroEnabled: false
+
+            # ── Base values (from utils/helm-values.yaml) ─────────────────────
+            database:
+              host: postgres-postgresql
+
+            env:
+              CONSUMER_KEY: maas_consumer_key
+              MAAS_URL: maas_image_server_url
+              TOKEN_KEY: maas_token_key
+              TOKEN_SECRET: maas_token_secret
+            environment: lab
+
+            keycloak:
+              hostname: "keycloak-login.armada.ai"
+              cmsHost: "bridge.armada.ai"
+              db:
+                host: postgres-postgresql
+              operator:
+                kc_image: amcopnightly/keycloak:26.1.0
+                kc_operator_image: amcop/keycloak-operator:26.1.0
+
+            m360:
+              feature: "false"
+
+            orchestrator:
+              nodeProvisioner: none
+              bcm:
+                host: https://bcm-service:8081
+              maas:
+                url: http://maas-service:5240/MAAS
+                auth:
+                  consumerKey: consumer-key
+                  consumerSecret: consumer-secret
+                  tokenKey: token-key
+                  tokenSecret: token-secret
+              vault:
+                token: dummy
+                address: dummy
+
+            postgres:
+              username: cG9zdGdyZXMK
+
+            jobOrchestrator:
+              environment:
+                environment_value: cms
+                deployment_type: cms
+                cms_api_base_url: http://orchestrator.amcop-system.svc.cluster.local:9061
+                dbHost: postgres-postgresql
+                vaultAddr: "dummy"
+                vaultToken: "dummy"
+              adminsshprivatekey:
+                privateKey: ""
+              adminsshpublickey:
+                publicKey: ""
+
+            redis-db:
+              password: ""
+
+            authGateway:
+              environment:
+                redis_url: "redis://:@redis.amcop-system.svc.cluster.local:6379"
+                redis_sentinels: ""
+                redis_sentinels_password: ""
+                redis_master_name: ""
+                redis_password: ""
+              oidcIssuerUrl: "https://keycloak-login.armada.ai/realms/GPUaaS"
+              oidcAuthorizationUrl: "https://keycloak-login.armada.ai/realms/GPUaaS/protocol/openid-connect/auth"
+              oidcCallbackUrl: "https://bridge.armada.ai/auth/oidc/callback"
+
+            gitlabUsername: "thilaga.sambath"
+            gitlabPassword: "glpat-ZxA6VGaPO1KzZoZ0Y987cG86MQp1OmptNG14Cw.01.121o322a1"
+            prometheusEndpoint: "dummy"
+            k8sBootstrapTargetRevision: "2026-03-13-stg"
+            k8sBootstrapRepoURL: "https://gitlab.com/api/v4/projects/61409034/packages/helm/devel"
+            vaultToken: "dummy"
+            vaultServer: "dummy"
+            bridgeDomain: "bridge.armada.ai"
+            keycloakDomain: "keycloak-login.armada.ai"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: amcop-system
+      syncPolicy:
+        automated:
+          prune: false
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

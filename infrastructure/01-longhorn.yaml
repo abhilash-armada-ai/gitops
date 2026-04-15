@@ -1,0 +1,81 @@
+---
+# Longhorn is already installed on this cluster.
+# This Application ADOPTS the existing installation — syncPolicy is manual.
+# Do NOT auto-sync until you have verified the diff in ArgoCD UI.
+# Chart: https://charts.longhorn.io  version: 1.11.0
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: longhorn
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://charts.longhorn.io
+    chart: longhorn
+    targetRevision: 1.11.0
+    helm:
+      values: |
+        global:
+          imagePullSecrets:
+            - name: armada-registry
+        image:
+          longhorn:
+            manager:
+              registry: "docker.io"
+              repository: amcop/longhorn-manager
+            engine:
+              registry: "docker.io"
+              repository: amcop/longhorn-engine
+            ui:
+              registry: "docker.io"
+              repository: amcop/longhorn-ui
+            instanceManager:
+              registry: "docker.io"
+              repository: amcop/longhorn-instance-manager
+            shareManager:
+              registry: "docker.io"
+              repository: amcop/longhorn-share-manager
+          csi:
+            attacher:
+              registry: "docker.io"
+              repository: amcop/longhorn-csi-attacher
+            provisioner:
+              registry: "docker.io"
+              repository: amcop/longhorn-csi-provisioner
+            resizer:
+              registry: "docker.io"
+              repository: amcop/longhorn-csi-resizer
+            snapshotter:
+              registry: "docker.io"
+              repository: amcop/longhorn-csi-snapshotter
+            nodeDriverRegistrar:
+              registry: "docker.io"
+              repository: amcop/longhorn-csi-node-driver-registrar
+            livenessProbe:
+              registry: "docker.io"
+              repository: amcop/longhorn-livenessprobe
+        defaultSettings:
+          defaultReplicaCount: 1
+        persistence:
+          defaultClassReplicaCount: 1
+          defaultClass: true
+        csi:
+          attacherReplicaCount: 1
+          provisionerReplicaCount: 1
+          resizerReplicaCount: 1
+          snapshotterReplicaCount: 1
+        longhornUI:
+          replicas: 1
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: longhorn-system
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

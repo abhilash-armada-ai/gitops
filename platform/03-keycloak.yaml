@@ -1,0 +1,48 @@
+---
+# Keycloak — identity and access management
+# Chart: private GitLab Helm repo  version: staging-2026-03-23
+#
+# NOTE: ArgoCD installs the Keycloak chart only.
+# Realm, client, user configuration MUST be done via Ansible after this is Healthy:
+#   ansible-playbook playbooks/cluster.yml \
+#     -e "install_k8s=false" -e @my_vars.yaml \
+#     -i /artifacts/cms-inventory.yaml \
+#     --tags keycloak_config
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: keycloak
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  source:
+    repoURL: https://gitlab.com/api/v4/projects/61409034/packages/helm/devel
+    chart: keycloak
+    targetRevision: "2026.3.23"
+    helm:
+      values: |
+        keycloak:
+          imagePullSecrets:
+            - name: armada-registry
+          operator:
+            imagePullSecrets:
+              - name: armada-registry
+            kc_image: amcopnightly/keycloak:26.1.0
+            kc_operator_image: amcop/keycloak-operator:26.1.0
+        database:
+          host: postgres-postgresql
+        environment: lab
+        bridgeDomain: "bridge.armada.ai"
+        keycloakDomain: "keycloak-login.armada.ai"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: amcop-system
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

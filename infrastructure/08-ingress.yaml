@@ -1,0 +1,49 @@
+---
+# ingress-nginx — ingress controller
+# Chart: https://kubernetes.github.io/ingress-nginx  version: 4.14.4
+# Service type: ClusterIP (no MetalLB IP pool configured).
+# Change to LoadBalancer once an IPAddressPool is added to MetalLB.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes.github.io/ingress-nginx
+    chart: ingress-nginx
+    targetRevision: 4.14.4
+    helm:
+      values: |
+        imagePullSecrets:
+          - name: armada-registry
+        controller:
+          image:
+            registry: docker.io
+            image: amcop/ingress-nginx-controller
+            digest: ""
+          admissionWebhooks:
+            patch:
+              image:
+                registry: docker.io
+                image: amcop/ingress-nginx-kube-webhook-certgen
+                digest: ""
+          replicaCount: 1
+          service:
+            type: ClusterIP
+            ports:
+              http: 80
+              https: 443
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: amcop-system
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
