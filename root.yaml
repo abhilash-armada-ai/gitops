@@ -31,7 +31,7 @@ spec:
     namespace: argocd
   syncPolicy:
     automated:
-      prune: false      # Safety: never auto-delete AppOfApps from Git removals
+      prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
