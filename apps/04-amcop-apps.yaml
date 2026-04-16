@@ -16,6 +16,8 @@ kind: ApplicationSet
 metadata:
   name: amcop-apps
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
 spec:
   generators:
     - list:
